@@ -3,6 +3,8 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useState } from "react";
+import { useFormStatus } from "react-dom";
+import { signOut } from "@/app/actions/auth";
 
 const navItems = [
   {
@@ -44,21 +46,41 @@ const navItems = [
   {
     href: "/chat",
     label: "AI Chat",
+    badge: "AI",
     icon: (
       <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z" />
       </svg>
     ),
-    badge: "AI",
   },
 ];
+
+function SignOutButton() {
+  const { pending } = useFormStatus();
+  return (
+    <button
+      type="submit"
+      disabled={pending}
+      className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium text-slate-400 hover:text-red-400 hover:bg-red-500/10 transition-all group disabled:opacity-60"
+    >
+      {pending ? (
+        <div className="w-5 h-5 border-2 border-slate-500 border-t-transparent rounded-full animate-spin flex-shrink-0" />
+      ) : (
+        <svg className="w-5 h-5 text-slate-500 group-hover:text-red-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
+        </svg>
+      )}
+      {pending ? "Signing out…" : "Sign out"}
+    </button>
+  );
+}
 
 interface SidebarProps {
   userName?: string;
   userEmail?: string;
 }
 
-export function Sidebar({ userName = "Developer", userEmail = "dev@example.com" }: SidebarProps) {
+export function Sidebar({ userName = "Developer", userEmail = "" }: SidebarProps) {
   const pathname = usePathname();
   const [mobileOpen, setMobileOpen] = useState(false);
 
@@ -90,7 +112,9 @@ export function Sidebar({ userName = "Developer", userEmail = "dev@example.com" 
           Menu
         </div>
         {navItems.map((item) => {
-          const isActive = pathname === item.href || (item.href !== "/dashboard" && pathname.startsWith(item.href));
+          const isActive =
+            pathname === item.href ||
+            (item.href !== "/dashboard" && pathname.startsWith(item.href));
           return (
             <Link
               key={item.href}
@@ -107,9 +131,13 @@ export function Sidebar({ userName = "Developer", userEmail = "dev@example.com" 
               </span>
               <span className="flex-1">{item.label}</span>
               {item.badge && (
-                <span className={`text-xs px-1.5 py-0.5 rounded-md font-semibold ${
-                  isActive ? "bg-white/20 text-white" : "bg-indigo-600/20 text-indigo-400"
-                }`}>
+                <span
+                  className={`text-xs px-1.5 py-0.5 rounded-md font-semibold ${
+                    isActive
+                      ? "bg-white/20 text-white"
+                      : "bg-indigo-600/20 text-indigo-400"
+                  }`}
+                >
                   {item.badge}
                 </span>
               )}
@@ -119,8 +147,8 @@ export function Sidebar({ userName = "Developer", userEmail = "dev@example.com" 
       </nav>
 
       {/* Bottom section */}
-      <div className="px-3 py-4 border-t border-slate-800 space-y-2">
-        {/* Settings link */}
+      <div className="px-3 py-4 border-t border-slate-800 space-y-1">
+        {/* Settings */}
         <Link
           href="/settings"
           className="flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium text-slate-400 hover:text-white hover:bg-slate-800 transition-all group"
@@ -132,8 +160,16 @@ export function Sidebar({ userName = "Developer", userEmail = "dev@example.com" 
           Settings
         </Link>
 
+        {/* Sign out via Server Action */}
+        <form action={signOut}>
+          <SignOutButton />
+        </form>
+
+        {/* Divider */}
+        <div className="border-t border-slate-800 my-2" />
+
         {/* User profile */}
-        <div className="flex items-center gap-3 px-3 py-2.5 rounded-xl hover:bg-slate-800 cursor-pointer transition-all">
+        <div className="flex items-center gap-3 px-3 py-2.5 rounded-xl">
           <div className="w-8 h-8 rounded-full bg-indigo-600/30 border border-indigo-500/40 flex items-center justify-center text-indigo-400 font-bold text-xs flex-shrink-0">
             {initials}
           </div>
@@ -141,9 +177,6 @@ export function Sidebar({ userName = "Developer", userEmail = "dev@example.com" 
             <div className="text-white text-sm font-medium truncate">{userName}</div>
             <div className="text-slate-500 text-xs truncate">{userEmail}</div>
           </div>
-          <svg className="w-4 h-4 text-slate-600 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-          </svg>
         </div>
       </div>
     </div>
