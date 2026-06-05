@@ -1,9 +1,36 @@
 import OpenAI from "openai";
 import { createClient } from "@/lib/supabase/server";
 
-// The OpenAI client automatically reads OPENAI_API_KEY from process.env.
-// Never put the key in client-side code — this file runs on the server only.
-const openai = new OpenAI();
+// ─── OpenAI client ────────────────────────────────────────────────────────────
+//
+// Initialized lazily inside each request handler (not at module level) so that
+// process.env is always read at call time, not at server startup.
+// This prevents "undefined key" bugs when env vars load after module import.
+//
+// If you see "Invalid API key" errors:
+//   1. Make sure .env.local exists in the project root
+//   2. Make sure it contains:  OPENAI_API_KEY=sk-proj-...
+//   3. Restart the dev server after editing .env.local
+
+function getOpenAIClient(): OpenAI {
+  const apiKey = process.env.OPENAI_API_KEY;
+
+  // Log key presence on every request (safe — never prints the actual key)
+  console.log(
+    "[/api/chat] OPENAI_API_KEY present:",
+    !!apiKey,
+    "| length:",
+    apiKey?.length ?? 0,
+    "| starts with sk-:",
+    apiKey?.startsWith("sk-") ?? false
+  );
+
+  if (!apiKey) {
+    throw new Error("OPENAI_API_KEY is not set. Add it to .env.local and restart the dev server.");
+  }
+
+  return new OpenAI({ apiKey });
+}
 
 // ─── System prompt ────────────────────────────────────────────────────────────
 //
@@ -68,9 +95,15 @@ export async function POST(request: Request): Promise<Response> {
   const recentMessages = messages.slice(-20);
 
   // 3. Call OpenAI with streaming enabled
+  const MODEL = "gpt-4o-mini";
+
   try {
+    const openai = getOpenAIClient();
+
+    console.log("[/api/chat] Calling OpenAI model:", MODEL);
+
     const completion = await openai.chat.completions.create({
-      model: "gpt-4o-mini",   // Fast and affordable; swap for "gpt-4o" for higher quality
+      model: MODEL,
       messages: [
         { role: "system", content: SYSTEM_PROMPT },
         ...recentMessages,
@@ -107,20 +140,67 @@ export async function POST(request: Request): Promise<Response> {
       },
     });
   } catch (err: unknown) {
-    // OpenAI API errors carry a numeric `status` field we can inspect safely
-    const status =
-      typeof err === "object" && err !== null && "status" in err
-        ? (err as { status: unknown }).status
-        : undefined;
+    // ── Detailed error logging ──────────────────────────────────────────────
+    // OpenAI SDK errors are instances of APIError and carry structured fields.
+    // We cast to a loose shape so TypeScript lets us read them safely.
+    const e = err as {
+      message?: string;
+      status?: number;
+      code?: string;
+      type?: string;
+      error?: unknown;
+    };
 
-    if (status === 401) {
-      return new Response("Invalid OpenAI API key. Check your OPENAI_API_KEY.", { status: 500 });
+    console.error("[/api/chat] OPENAI ERROR", {
+      message: e.message,
+      status:  e.status,
+      code:    e.code,
+      type:    e.type,
+      model:   MODEL,
+      error:   err,          // full object — includes headers, request id, etc.
+    });
+
+    // ── User-facing responses ────────────────────────────────────────────────
+    // In development we surface the real OpenAI message so you can debug fast.
+    // In production a generic message is shown so internals stay private.
+    const isDev = process.env.NODE_ENV === "development";
+    const devDetail = isDev && e.message ? ` — ${e.message}` : "";
+
+    if (e.status === 401) {
+      return new Response(
+        `Invalid OpenAI API key. Check your OPENAI_API_KEY.${devDetail}`,
+        { status: 500 }
+      );
     }
-    if (status === 429) {
-      return new Response("OpenAI rate limit reached. Please try again in a moment.", { status: 429 });
+    if (e.status === 429) {
+      return new Response(
+        `OpenAI rate limit reached. Please try again in a moment.${devDetail}`,
+        { status: 429 }
+      );
+    }
+    if (e.status === 404) {
+      return new Response(
+        `Model not found: "${MODEL}". ${isDev ? e.message ?? "" : "Check the model name."}`,
+        { status: 500 }
+      );
+    }
+    if (e.status === 400) {
+      return new Response(
+        `Bad request to OpenAI.${devDetail}`,
+        { status: 500 }
+      );
     }
 
-    console.error("[/api/chat] error:", err);
-    return new Response("AI service error. Please try again.", { status: 500 });
+    // Config error (missing API key before the request was sent)
+    if (err instanceof Error && err.message.includes("OPENAI_API_KEY")) {
+      return new Response(err.message, { status: 500 });
+    }
+
+    return new Response(
+      isDev
+        ? `AI service error: ${e.message ?? String(err)}`
+        : "AI service error. Please try again.",
+      { status: 500 }
+    );
   }
 }
