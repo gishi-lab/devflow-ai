@@ -94,19 +94,45 @@ export async function updateNote(
 ): Promise<Note> {
   const supabase = await createClient();
 
+  // Verify auth — same as createNote (required for RLS to work correctly)
+  const {
+    data: { user },
+    error: authError,
+  } = await supabase.auth.getUser();
+
+  console.log("[updateNote] called — id:", id, "| user:", user?.id ?? "NOT AUTHENTICATED");
+
+  if (authError || !user) throw new Error("Not authenticated");
+
+  const payload = {
+    title: input.title.trim(),
+    content: input.content.trim(),
+    category: input.category,
+    tags: input.tags,
+  };
+
+  console.log("[updateNote] payload:", payload);
+
   const { data, error } = await supabase
     .from("notes")
-    .update({
-      title: input.title.trim(),
-      content: input.content.trim(),
-      category: input.category,
-      tags: input.tags,
-    })
+    .update(payload)
     .eq("id", id)
     .select()
     .single();
 
-  if (error) throw new Error(error.message);
+  console.log("[updateNote] Supabase response — data:", data, "| error:", error);
+
+  if (error) {
+    console.error("[updateNote] Supabase error detail:", {
+      message: error.message,
+      code:    error.code,
+      details: error.details,
+      hint:    error.hint,
+    });
+    throw new Error(`Supabase update failed: ${error.message} (code: ${error.code})`);
+  }
+
+  console.log("[updateNote] success — revalidating /notes");
   revalidatePath("/notes");
   return toNote(data);
 }
